@@ -1,0 +1,17 @@
+imageio
+imageio-ffmpeg
+tqdm
+easydict
+opencv-python-headless
+ninja
+trimesh
+transformers==4.57.6
+einops
+zstandard
+kornia
+timm
+huggingface_hub
+safetensors
+requests
+runpod
+pillow
