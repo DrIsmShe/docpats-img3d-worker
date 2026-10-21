@@ -18,6 +18,14 @@ non-commercial or research use only. This worker replaces both:
   `uv_raster.py` is a small PyTorch rasteriser with the same interface, and
   `patch_trellis.py` points the two imports at it during the image build.
 
+- **Image encoder access:** TRELLIS.2 loads DINOv3 from the gated
+  `facebook/dinov3-vitl16-pretrain-lvd1689m` repository. The DINOv3 licence
+  allows licensees to redistribute the model, and Hugging Face publishes the
+  same weights ungated as `timm/vit_large_patch16_dinov3.lvd1689m` under that
+  licence. `dino_timm.py` runs them exactly the way TRELLIS.2 extracts
+  features; on 512 and 1024 px inputs the per-token cosine similarity to the
+  transformers-format weights is ≥ 0.99998. The DINOv3 licence still applies.
+
 `selftest.py` runs inside every built image and fails the build if
 `nvdiffrast` or RMBG-2.0 come back.
 
@@ -27,7 +35,6 @@ non-commercial or research use only. This worker replaces both:
 |---|---|
 | `IMG3D_API` | queue API base URL |
 | `IMG3D_WORKER_SECRET` | shared secret for the queue API |
-| `HF_TOKEN` | Hugging Face token of an account that accepted the DINOv3 licence |
 
 Weights (~16 GB) are not baked into the image; they are downloaded on first
 start into `/runpod-volume` (if a network volume is attached) or local disk.

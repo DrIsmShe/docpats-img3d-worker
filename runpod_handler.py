@@ -4,7 +4,7 @@
 # сервер DocPats «будит» endpoint пустым запросом, GPU забирает из очереди
 # все ждущие картинки по HTTP и гаснет. Платим только за секунды работы.
 #
-# IMG3D_API, IMG3D_WORKER_SECRET и HF_TOKEN задаются в переменных endpoint'а
+# IMG3D_API и IMG3D_WORKER_SECRET задаются в переменных endpoint'а
 # RunPod, а не во входе запроса: вход виден в панели RunPod и в журналах.
 
 import img3d_worker as w

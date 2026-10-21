@@ -6,6 +6,7 @@
 
 import importlib.util
 import os
+from json import dumps as json_dumps
 import pathlib
 import sys
 
@@ -19,7 +20,7 @@ def check(name, cond, detail=""):
 
 
 # 1. модули воркера и собранные расширения
-for mod in ["img3d_worker", "runpod_handler", "uv_raster", "trellis2", "o_voxel", "cumesh", "flex_gemm", "flash_attn", "utils3d", "transformers", "runpod"]:
+for mod in ["img3d_worker", "runpod_handler", "uv_raster", "dino_timm", "timm", "trellis2", "o_voxel", "cumesh", "flex_gemm", "flash_attn", "utils3d", "transformers", "runpod"]:
     check(f"module {mod}", importlib.util.find_spec(mod) is not None)
 
 # 2. nvdiffrast в образе нет, и TRELLIS.2 его не импортирует там, где зовёт воркер
@@ -38,6 +39,11 @@ for p in targets:
 import img3d_worker as w  # noqa: E402
 
 check("rembg is BiRefNet MIT", w.REMBG == "ZhengPeng7/BiRefNet")
+# DINOv3 — из открытой раздачи timm, не из закрытого facebook/
+check("image encoder from timm", w.IMAGE_COND["name"] == "TimmDinoV3FeatureExtractor" and "facebook" not in json_dumps(w.IMAGE_COND))
+import dino_timm  # noqa: E402
+
+check("timm encoder class", hasattr(dino_timm, "register") and hasattr(dino_timm.TimmDinoV3FeatureExtractor, "extract_features"))
 src = pathlib.Path(w.__file__).read_text(encoding="utf-8")
 check("RMBG-2.0 not referenced in worker", "briaai" not in src.replace("briaai/RMBG-2.0 (CC BY-NC)", ""))
 

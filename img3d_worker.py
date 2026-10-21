@@ -7,8 +7,9 @@
 #   - вырезание фона: briaai/RMBG-2.0 (CC BY-NC) -> ZhengPeng7/BiRefNet (MIT);
 #   - растеризация UV при запекании текстуры: nvdiffrast (только research)
 #     -> uv_raster.py (Dockerfile подменяет импорт в o_voxel и trellis2).
-# DINOv3 (кодировщик картинки) — лицензия Meta, коммерция разрешена, но
-# модель выдаётся по согласию: нужен HF_TOKEN аккаунта, принявшего условия.
+# DINOv3 (кодировщик картинки) — лицензия Meta, коммерция разрешена. Берём
+# его из timm (открытая раздача Hugging Face по той же лицензии), а не из
+# закрытого facebook/: см. dino_timm.py. HF_TOKEN не нужен.
 #
 # Веса (~16 ГБ) не в образе, а в кэше: /runpod-volume, если к endpoint
 # подключён сетевой диск, иначе диск машины. Первый запуск качает их с
@@ -41,6 +42,8 @@ TRELLIS_REPO = "microsoft/TRELLIS.2-4B"
 # декодер разреженной структуры TRELLIS.2 берёт из первой TRELLIS (тоже MIT)
 SS_DEC = ("microsoft/TRELLIS-image-large", "ckpts/ss_dec_conv3d_16l8_fp16")
 REMBG = "ZhengPeng7/BiRefNet"
+# кодировщик картинки — DINOv3 ViT-L из timm (dino_timm.py)
+IMAGE_COND = {"name": "TimmDinoV3FeatureExtractor", "args": {"model_name": "vit_large_patch16_dinov3.lvd1689m"}}
 # какие веса нужны для fast и full; кодировщики (enc) — только для обучения
 NEEDED = [
     "pipeline.json",
@@ -66,7 +69,7 @@ def cache_root():
 
 
 def fetch_weights(root):
-    """Скачать недостающие веса и записать свой pipeline.json (наш фон-вырезатель)."""
+    """Скачать недостающие веса и записать свой pipeline.json (фон и кодировщик — наши)."""
     from huggingface_hub import snapshot_download
 
     local = os.path.join(root, "trellis2")
@@ -76,6 +79,7 @@ def fetch_weights(root):
     with open(cfg_path, encoding="utf-8") as fh:
         cfg = json.load(fh)
     cfg["args"]["rembg_model"] = {"name": "BiRefNet", "args": {"model_name": REMBG}}
+    cfg["args"]["image_cond_model"] = IMAGE_COND
     with open(cfg_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(cfg, fh, indent=1)
     return local
@@ -91,7 +95,10 @@ def pipeline():
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         os.environ.setdefault("ATTN_BACKEND", "flash_attn")
         local = fetch_weights(cache_root())
+        import dino_timm
         from trellis2.pipelines import Trellis2ImageTo3DPipeline
+
+        dino_timm.register()
 
         p = Trellis2ImageTo3DPipeline.from_pretrained(local)
         p.cuda()
