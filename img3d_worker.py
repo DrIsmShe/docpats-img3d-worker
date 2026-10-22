@@ -178,34 +178,40 @@ def _export(mesh, out_path, remesh):
     return {"faces": int(len(tm.faces)), "size": [round(float(x), 4) for x in ext]}
 
 
-def process(src, out_dir, quality="full", seed=42):
+def no_stage(_name):
+    pass
+
+
+def process(src, out_dir, quality="full", seed=42, stage=no_stage):
     """Картинка -> out_dir/model.glb. Возвращает манифест.
 
     «Подробной» не хватило памяти видеокарты — строим «Быструю»: врач
     получает модель, а в манифесте видно, что качество снижено."""
     quality = quality if quality in QUALITY else "full"
     try:
-        return _process(src, out_dir, quality, seed)
+        return _process(src, out_dir, quality, seed, stage)
     except Exception as e:  # noqa: BLE001
         if quality == "fast" or not is_oom(e):
             raise
         log("full quality ran out of GPU memory, building fast instead")
         free_gpu()
-        manifest = _process(src, out_dir, "fast", seed)
+        manifest = _process(src, out_dir, "fast", seed, stage)
         manifest["fellBack"] = True
         return manifest
 
 
-def _process(src, out_dir, quality, seed):
+def _process(src, out_dir, quality, seed, stage):
     import torch
 
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
     p = pipeline()
     img = open_picture(src)
+    stage("generating")
     with torch.no_grad():
         mesh = p.run(img, seed=int(seed), pipeline_type=QUALITY[quality])[0]
     # память нейросети больше не нужна — отдаём её сборке сетки
+    stage("finishing")
     free_gpu()
     mesh.simplify(PRE_EXPORT_FACES)
     free_gpu()
@@ -239,6 +245,18 @@ def api(method, path, **kw):
     return r
 
 
+def report_stage(jid):
+    """Этап задачи — на страницу врача. Сбой связи работе не мешает."""
+
+    def send(name):
+        try:
+            api("POST", f"/worker/jobs/{jid}/stage", json={"stage": name}, timeout=15)
+        except Exception as e:  # noqa: BLE001
+            log("stage not reported:", e)
+
+    return send
+
+
 def run_job(job):
     """Одна задача: скачать картинку, построить модель, отдать (или отказ)."""
     jid = job["_id"]
@@ -251,7 +269,9 @@ def run_job(job):
                 for chunk in r.iter_content(1 << 20):
                     fh.write(chunk)
         out = os.path.join(tmp, "out")
-        manifest = process(src, out, job.get("quality", "full"), job.get("seed", 42))
+        stage = report_stage(jid)
+        stage("starting")
+        manifest = process(src, out, job.get("quality", "full"), job.get("seed", 42), stage)
         with open(os.path.join(out, "model.glb"), "rb") as glb:
             api(
                 "POST",
