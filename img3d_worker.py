@@ -37,6 +37,10 @@ TEXTURE_SIZE = 2048
 # столько треугольников остаётся в модели: студия и браузер врача
 # крутят её в реальном времени, миллион граней там не нужен
 TARGET_FACES = 200000
+# до сборки GLB сетку «Подробной» (миллионы граней) упрощаем до стольких:
+# перестройка сетки и дерево поиска (CuMesh) иначе не помещаются в 32 ГБ
+# RTX 5090 — 22.10.2026 «Подробная» упала «CuMesh … out of memory»
+PRE_EXPORT_FACES = 4_000_000
 
 TRELLIS_REPO = "microsoft/TRELLIS.2-4B"
 # декодер разреженной структуры TRELLIS.2 берёт из первой TRELLIS (тоже MIT)
@@ -120,7 +124,34 @@ def open_picture(path):
     return img
 
 
+def free_gpu():
+    import gc
+
+    import torch
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def is_oom(err):
+    return "out of memory" in str(err).lower()
+
+
 def export_glb(mesh, out_path):
+    """GLB с текстурой. Не хватило памяти на перестройку сетки — повторяем
+    облегчённо (упрощение без перестройки): модель чуть грубее по топологии,
+    зато врач её получает, а не «Не получилось»."""
+    try:
+        return _export(mesh, out_path, remesh=True)
+    except Exception as e:  # noqa: BLE001
+        if not is_oom(e):
+            raise
+        log("export: out of memory with remesh, retrying without")
+        free_gpu()
+        return _export(mesh, out_path, remesh=False)
+
+
+def _export(mesh, out_path, remesh):
     import o_voxel
     import trimesh
 
@@ -134,7 +165,7 @@ def export_glb(mesh, out_path):
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
         decimation_target=TARGET_FACES,
         texture_size=TEXTURE_SIZE,
-        remesh=True,
+        remesh=remesh,
         remesh_band=1,
         remesh_project=0,
         verbose=False,
@@ -148,17 +179,36 @@ def export_glb(mesh, out_path):
 
 
 def process(src, out_dir, quality="full", seed=42):
-    """Картинка -> out_dir/model.glb. Возвращает манифест."""
+    """Картинка -> out_dir/model.glb. Возвращает манифест.
+
+    «Подробной» не хватило памяти видеокарты — строим «Быструю»: врач
+    получает модель, а в манифесте видно, что качество снижено."""
+    quality = quality if quality in QUALITY else "full"
+    try:
+        return _process(src, out_dir, quality, seed)
+    except Exception as e:  # noqa: BLE001
+        if quality == "fast" or not is_oom(e):
+            raise
+        log("full quality ran out of GPU memory, building fast instead")
+        free_gpu()
+        manifest = _process(src, out_dir, "fast", seed)
+        manifest["fellBack"] = True
+        return manifest
+
+
+def _process(src, out_dir, quality, seed):
     import torch
 
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
-    quality = quality if quality in QUALITY else "full"
     p = pipeline()
     img = open_picture(src)
     with torch.no_grad():
         mesh = p.run(img, seed=int(seed), pipeline_type=QUALITY[quality])[0]
-    mesh.simplify(16777216)  # предел растеризации текстуры (как в примере TRELLIS.2)
+    # память нейросети больше не нужна — отдаём её сборке сетки
+    free_gpu()
+    mesh.simplify(PRE_EXPORT_FACES)
+    free_gpu()
     info = export_glb(mesh, os.path.join(out_dir, "model.glb"))
     del mesh
     torch.cuda.empty_cache()
