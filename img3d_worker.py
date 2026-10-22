@@ -95,10 +95,14 @@ def pipeline():
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         os.environ.setdefault("ATTN_BACKEND", "xformers")
         local = fetch_weights(cache_root())
+        import attn_guard
         import dino_timm
         from trellis2.pipelines import Trellis2ImageTo3DPipeline
 
         dino_timm.register()
+        # на Blackwell ядра xformers падают — внимание через PyTorch (attn_guard.py)
+        if attn_guard.install():
+            log("attention: torch sdpa (Blackwell)")
 
         p = Trellis2ImageTo3DPipeline.from_pretrained(local)
         p.cuda()
