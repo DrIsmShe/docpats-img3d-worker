@@ -28,7 +28,9 @@ import shutil
 import tempfile
 import time
 
-WORKER_VERSION = "img3d-1"
+WORKER_VERSION = "img3d-2"
+# больше стольких рисунков одного предмета не берём (спереди, сбоку, сзади, ещё)
+MAX_VIEWS = 4
 IMAGE_TAG = os.environ.get("IMG3D_IMAGE", "local")
 
 # качество: fast — сетка 512 (быстрее, грубее), full — 1024 каскадом
@@ -183,7 +185,8 @@ def no_stage(_name):
 
 
 def process(src, out_dir, quality="full", seed=42, stage=no_stage):
-    """Картинка -> out_dir/model.glb. Возвращает манифест.
+    """Картинка (или список картинок одного предмета с разных сторон) ->
+    out_dir/model.glb. Возвращает манифест.
 
     «Подробной» не хватило памяти видеокарты — строим «Быструю»: врач
     получает модель, а в манифесте видно, что качество снижено."""
@@ -205,11 +208,14 @@ def _process(src, out_dir, quality, seed, stage):
 
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
+    import multiview
+
     p = pipeline()
-    img = open_picture(src)
+    srcs = src if isinstance(src, (list, tuple)) else [src]
+    imgs = [open_picture(s) for s in srcs[:MAX_VIEWS]]
     stage("generating")
     with torch.no_grad():
-        mesh = p.run(img, seed=int(seed), pipeline_type=QUALITY[quality])[0]
+        mesh = multiview.run(p, imgs, seed=int(seed), pipeline_type=QUALITY[quality])[0]
     # память нейросети больше не нужна — отдаём её сборке сетки
     stage("finishing")
     free_gpu()
@@ -224,6 +230,7 @@ def _process(src, out_dir, quality, seed, stage):
         "quality": quality,
         "seed": int(seed),
         "textureSize": TEXTURE_SIZE,
+        "views": len(imgs),
         "durationSec": round(time.time() - t0),
         "device": "gpu",
         "parts": [{"id": "model", "label": "model", "faces": info["faces"]}],
@@ -263,11 +270,16 @@ def run_job(job):
     log("job", jid)
     tmp = tempfile.mkdtemp(prefix="img3d_job_")
     try:
-        src = os.path.join(tmp, "source" + job.get("sourceExt", ".png"))
-        with api("GET", f"/worker/jobs/{jid}/source", stream=True, timeout=300) as r:
-            with open(src, "wb") as fh:
-                for chunk in r.iter_content(1 << 20):
-                    fh.write(chunk)
+        # несколько рисунков с разных сторон: /source?i=0..n-1 (0 — главный)
+        exts = job.get("sourceExts") or [job.get("sourceExt", ".png")]
+        src = []
+        for i, ext in enumerate(exts[:MAX_VIEWS]):
+            path = os.path.join(tmp, f"source{i}{ext}")
+            with api("GET", f"/worker/jobs/{jid}/source", params={"i": i}, stream=True, timeout=300) as r:
+                with open(path, "wb") as fh:
+                    for chunk in r.iter_content(1 << 20):
+                        fh.write(chunk)
+            src.append(path)
         out = os.path.join(tmp, "out")
         stage = report_stage(jid)
         stage("starting")

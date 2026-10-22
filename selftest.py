@@ -20,7 +20,7 @@ def check(name, cond, detail=""):
 
 
 # 1. модули воркера и собранные расширения
-for mod in ["img3d_worker", "runpod_handler", "uv_raster", "dino_timm", "attn_guard", "timm", "trellis2", "o_voxel", "cumesh", "flex_gemm", "xformers", "utils3d", "transformers", "runpod"]:
+for mod in ["img3d_worker", "runpod_handler", "uv_raster", "dino_timm", "attn_guard", "multiview", "timm", "trellis2", "o_voxel", "cumesh", "flex_gemm", "xformers", "utils3d", "transformers", "runpod"]:
     check(f"module {mod}", importlib.util.find_spec(mod) is not None)
 
 # 2. nvdiffrast в образе нет, и TRELLIS.2 его не импортирует там, где зовёт воркер
@@ -77,6 +77,10 @@ import subprocess  # noqa: E402
 
 r = subprocess.run([sys.executable, "test_attn_guard.py"], capture_output=True, text=True)
 check("attn_guard matches plain attention", r.returncode == 0, r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[-200:])
+
+# 6. несколько рисунков: предсказания усредняются по ракурсам (на процессоре)
+r = subprocess.run([sys.executable, "test_multiview.py"], capture_output=True, text=True)
+check("multiview averages views", r.returncode == 0, r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[-200:])
 
 print("SELFTEST", "PASSED" if ok else "FAILED")
 sys.exit(0 if ok else 1)
