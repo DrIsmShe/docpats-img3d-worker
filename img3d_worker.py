@@ -93,7 +93,7 @@ def pipeline():
     global _pipeline
     if _pipeline is None:
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        os.environ.setdefault("ATTN_BACKEND", "flash_attn")
+        os.environ.setdefault("ATTN_BACKEND", "xformers")
         local = fetch_weights(cache_root())
         import dino_timm
         from trellis2.pipelines import Trellis2ImageTo3DPipeline

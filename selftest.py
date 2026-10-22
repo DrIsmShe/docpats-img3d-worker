@@ -20,7 +20,7 @@ def check(name, cond, detail=""):
 
 
 # 1. модули воркера и собранные расширения
-for mod in ["img3d_worker", "runpod_handler", "uv_raster", "dino_timm", "timm", "trellis2", "o_voxel", "cumesh", "flex_gemm", "flash_attn", "utils3d", "transformers", "runpod"]:
+for mod in ["img3d_worker", "runpod_handler", "uv_raster", "dino_timm", "timm", "trellis2", "o_voxel", "cumesh", "flex_gemm", "xformers", "utils3d", "transformers", "runpod"]:
     check(f"module {mod}", importlib.util.find_spec(mod) is not None)
 
 # 2. nvdiffrast в образе нет, и TRELLIS.2 его не импортирует там, где зовёт воркер
@@ -34,6 +34,12 @@ if ovoxel_dir:
 for p in targets:
     text = p.read_text(encoding="utf-8") if p.exists() else ""
     check(f"patched {p.name}", "import uv_raster as dr" in text and "import nvdiffrast" not in text)
+
+# 2б. воркер берёт задачи ровно на тех поколениях карт, под которые собран образ
+import runpod_handler  # noqa: E402
+
+built = {tuple(int(x) for x in a.split(".")) for a in os.environ.get("TORCH_CUDA_ARCH_LIST", "").split(";") if a}
+check("handler arch list matches build", built == runpod_handler.BUILT_FOR, f"{sorted(built)}")
 
 # 3. фон вырезает BiRefNet (MIT), а не RMBG-2.0 (CC BY-NC)
 import img3d_worker as w  # noqa: E402
